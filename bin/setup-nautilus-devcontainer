@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: setup-nautilus-devcontainer [--uninstall | --reinstall] [NAUTILUS_TRADER_REPO]
+
+Installs a clone-local .devcontainer configuration and excludes it through
+.git/info/exclude without modifying the repository's tracked .gitignore.
+
+Options:
+  --uninstall  Confirm and remove the local .devcontainer installation.
+  --reinstall  Confirm, remove, and recreate the local .devcontainer directory.
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
+action=install
+if [[ "${1:-}" == "--uninstall" || "${1:-}" == "--reinstall" ]]; then
+    action="${1#--}"
+    shift
+fi
+
+if [[ $# -gt 1 ]]; then
+    usage >&2
+    exit 1
+fi
+
+repo="${1:-$PWD}"
+repo="$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null)" || {
+    echo "Not a Git repository: $repo" >&2
+    exit 1
+}
+
+if [[ ! -f "$repo/.docker/DockerfileUbuntu" || ! -f "$repo/python/pyproject.toml" ]]; then
+    echo "Not a NautilusTrader repository: $repo" >&2
+    exit 1
+fi
+
+if [[ -n "$(git -C "$repo" ls-files .devcontainer)" ]]; then
+    echo "Refusing to modify a tracked .devcontainer configuration in: $repo" >&2
+    exit 1
+fi
+
+git_dir="$(git -C "$repo" rev-parse --absolute-git-dir)"
+exclude_file="$git_dir/info/exclude"
+mkdir -p "$(dirname "$exclude_file")"
+touch "$exclude_file"
+
+remove_managed_ignore_rule() {
+    local temporary_file
+    temporary_file="$(mktemp)"
+    awk '
+        $0 == "# Local NautilusTrader development container" {
+            if ((getline next_line) > 0 && next_line != ".devcontainer/") {
+                print
+                print next_line
+            }
+            next
+        }
+        { print }
+    ' "$exclude_file" > "$temporary_file"
+    mv "$temporary_file" "$exclude_file"
+}
+
+if [[ "$action" == "uninstall" ]]; then
+    if [[ ! -e "$repo/.devcontainer" && ! -L "$repo/.devcontainer" ]] &&
+        ! grep -qxF '# Local NautilusTrader development container' "$exclude_file"; then
+        echo "No local NautilusTrader Dev Container installation found in: $repo"
+        exit 0
+    fi
+
+    read -r -p "Uninstall the local Dev Container from $repo? [y/N] " confirmation
+    if [[ "$confirmation" != "y" && "$confirmation" != "Y" ]]; then
+        echo "Uninstall canceled"
+        exit 0
+    fi
+
+    rm -rf -- "$repo/.devcontainer"
+    remove_managed_ignore_rule
+    echo "Uninstalled the local NautilusTrader Dev Container from: $repo"
+    exit 0
+fi
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+tool_root="$(cd "$script_dir/.." && pwd)"
+template="$tool_root/templates/nautilus-trader-devcontainer"
+
+if [[ ! -f "$template/devcontainer.json" || ! -f "$template/post-create.sh" || ! -f "$template/post-start.sh" ]]; then
+    echo "Dev Container template is incomplete: $template" >&2
+    exit 1
+fi
+
+if [[ "$action" == "reinstall" && ( -e "$repo/.devcontainer" || -L "$repo/.devcontainer" ) ]]; then
+    read -r -p "Delete and reinstall $repo/.devcontainer? [y/N] " confirmation
+    if [[ "$confirmation" != "y" && "$confirmation" != "Y" ]]; then
+        echo "Reinstall canceled"
+        exit 0
+    fi
+    rm -rf -- "$repo/.devcontainer"
+fi
+
+if ! grep -qxF '.devcontainer/' "$exclude_file"; then
+    {
+        printf '\n# Local NautilusTrader development container\n'
+        printf '.devcontainer/\n'
+    } >> "$exclude_file"
+fi
+
+mkdir -p "$repo/.devcontainer"
+cp "$template/devcontainer.json" "$repo/.devcontainer/devcontainer.json"
+cp "$template/post-create.sh" "$repo/.devcontainer/post-create.sh"
+cp "$template/post-start.sh" "$repo/.devcontainer/post-start.sh"
+chmod +x "$repo/.devcontainer/post-create.sh"
+chmod +x "$repo/.devcontainer/post-start.sh"
+
+python3 -m json.tool "$repo/.devcontainer/devcontainer.json" >/dev/null
+bash -n "$repo/.devcontainer/post-create.sh"
+bash -n "$repo/.devcontainer/post-start.sh"
+
+if ! git -C "$repo" check-ignore -q .devcontainer/devcontainer.json; then
+    echo "Installed files are not ignored as expected" >&2
+    exit 1
+fi
+
+cat <<EOF
+Installed the local NautilusTrader Dev Container:
+  $repo/.devcontainer/devcontainer.json
+  $repo/.devcontainer/post-create.sh
+  $repo/.devcontainer/post-start.sh
+
+Ignore rule:
+  $exclude_file
+
+Next step: open the repository in VS Code and run
+  Dev Containers: Reopen in Container
+EOF

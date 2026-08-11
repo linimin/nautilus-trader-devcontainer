@@ -1,0 +1,67 @@
+{
+  "name": "NautilusTrader Local",
+  "build": {
+    "dockerfile": "../.docker/DockerfileUbuntu",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  "mounts": [
+    "source=nautilus-cargo-registry,target=/usr/local/cargo/registry,type=volume",
+    "source=nautilus-cargo-git,target=/usr/local/cargo/git,type=volume",
+    "source=nautilus-target,target=/workspace/target,type=volume",
+    "source=nautilus-venv,target=/workspace/.venv,type=volume"
+  ],
+  "containerEnv": {
+    "CARGO_TARGET_DIR": "/workspace/target"
+  },
+  "remoteEnv": {
+    "VIRTUAL_ENV": "/workspace/.venv",
+    "PYO3_PYTHON": "/workspace/.venv/bin/python",
+    "PYTHONHOME": "/opt/nautilus-python",
+    "LD_LIBRARY_PATH": "/opt/nautilus-python/lib:/opt/capnp/lib",
+    "LIBRARY_PATH": "/opt/nautilus-python/lib",
+    "PATH": "/workspace/.venv/bin:/opt/capnp/bin:${containerEnv:PATH}"
+  },
+  "postStartCommand": "bash .devcontainer/post-start.sh",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "charliermarsh.ruff"
+      ],
+      "settings": {
+        "rust-analyzer.restartServerOnConfigChange": true,
+        "rust-analyzer.linkedProjects": [
+          "Cargo.toml"
+        ],
+        "rust-analyzer.cargo.features": "all",
+        "rust-analyzer.cargo.extraEnv": {
+          "VIRTUAL_ENV": "/workspace/.venv",
+          "PYO3_PYTHON": "/workspace/.venv/bin/python",
+          "PYTHONHOME": "/opt/nautilus-python",
+          "CC": "clang",
+          "CXX": "clang++"
+        },
+        "rust-analyzer.check.workspace": false,
+        "rust-analyzer.check.features": "all",
+        "rust-analyzer.check.extraEnv": {
+          "VIRTUAL_ENV": "/workspace/.venv",
+          "PYO3_PYTHON": "/workspace/.venv/bin/python",
+          "PYTHONHOME": "/opt/nautilus-python",
+          "CC": "clang",
+          "CXX": "clang++"
+        },
+        "rust-analyzer.runnables.extraEnv": {
+          "VIRTUAL_ENV": "/workspace/.venv",
+          "PYO3_PYTHON": "/workspace/.venv/bin/python",
+          "PYTHONHOME": "/opt/nautilus-python",
+          "CC": "clang",
+          "CXX": "clang++"
+        },
+        "rust-analyzer.testExplorer": true
+      }
+    }
+  }
+}
